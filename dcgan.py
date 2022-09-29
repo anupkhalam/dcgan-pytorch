@@ -347,7 +347,7 @@ def main():
                 'nz': 100,
                 'ngf': 64,
                 'ndf': 64,
-                'num_epochs': 16,
+                'num_epochs': 32,
                 'lr': 0.0002,
                 'beta1': 0.5,
                 'ngpu': 1,
@@ -412,8 +412,13 @@ def main():
     criterion = nn.BCELoss()
 
     fixed_noise = torch.randn(64, params['nz'], 1, 1, device=device)
+    img_list = []
+    ind_img_list = []
+    G_losses = []
+    D_losses = []
     print("Starting Training Loop...")
-    for iters, epoch in enumerate(range(last_epoch + 1, params['num_epochs'])):
+    for iters, epoch in enumerate(range(last_epoch + 1,
+                                        params['num_epochs']+1)):
         epoch_out = train(epoch,
                           netD,
                           netG,
@@ -425,8 +430,16 @@ def main():
         netD = epoch_out['modelD']
         netG = epoch_out['modelG']
         epoch_out_metric = epoch_out['metric_monitor'].get_epoch_report(epoch)
+        with torch.no_grad():
+            fake = netG(fixed_noise).detach().cpu()
+            img_list.append(vutils.make_grid(fake, padding=2, normalize=True))
+            ind_fake = fake[0].squeeze().numpy()
+            # ind_fake = fake[0].squeeze().permute(1, 2, 0)
+            ind_img_list.append(ind_fake)
+        D_losses.append(epoch_out_metric['epoch_average_errD'])
+        G_losses.append(epoch_out_metric['epoch_average_errG'])
 
-        if last_errD > epoch_out_metric['epoch_average_errD'] and \
+        if last_errD > epoch_out_metric['epoch_average_errD'] or \
            last_errG > epoch_out_metric['epoch_average_errG']:
 
             checkpoint = {'epoch': epoch_out['epoch'],
@@ -445,60 +458,62 @@ def main():
             last_errG = epoch_out_metric['epoch_average_errG']
     model_scripted = torch.jit.script(netG)
     model_scripted.save('models/model_scripted.pt')
+    fig = plt.figure(figsize=(10, 5))
+    plt.title("Generator and Discriminator Loss During Training")
+    plt.plot(G_losses, label="G")
+    plt.plot(D_losses, label="D")
+    plt.xlabel("iterations")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.savefig(os.path.join("images", "Losses.png"))
+    plt.close(fig)
+
+    # # Grab a batch of real images from the dataloader
+    real_batch = next(iter(dataloader))
+    fig = plt.figure(figsize=(15, 15))
+    plt.subplot(1, 2, 1)
+    plt.axis("off")
+    plt.title("Real Images")
+    plt.imshow(np.transpose(vutils.make_grid(real_batch[0].to(device)[:64],
+                                             padding=5,
+                                             normalize=True).cpu(), (1, 2, 0)))
+
+    plt.subplot(1, 2, 2)
+    plt.axis("off")
+    plt.title("Fake Images")
+    plt.imshow(np.transpose(img_list[-1], (1, 2, 0)))
+    plt.savefig(os.path.join("images", "Image_grid.png"))
+    plt.close(fig)
+
+    fig = plt.figure(figsize=(8, 8))
+    plt.axis("off")
+    ims = [[plt.imshow(np.transpose(i, (1, 2, 0)),
+                       animated=True)] for i in img_list]
+    ani = animation.ArtistAnimation(fig,
+                                    ims,
+                                    interval=1000,
+                                    repeat_delay=1000,
+                                    blit=True)
+    writervideo = animation.FFMpegWriter(fps=60)
+    ani.save(os.path.join("images", "Image_ind.mp4"), writer=writervideo)
+
+    fig = plt.figure(figsize=(8, 8))
+    plt.axis("off")
+    ims = [[plt.imshow(np.transpose(i, (1, 2, 0)),
+                       animated=True)] for i in ind_img_list]
+    ani = animation.ArtistAnimation(fig,
+                                    ims,
+                                    interval=1000,
+                                    repeat_delay=1000,
+                                    blit=True)
+    writervideo = animation.FFMpegWriter(fps=60)
+    ani.save(os.path.join("images", "Image_grid.mp4"), writer=writervideo)
+    # try:
+    #     plt.close(ani)
+    # except AttributeError:
+    #     pass
+
 
 if __name__ == "__main__":
     main()
-
-
-    # plt.figure(figsize=(10,5))
-    # plt.title("Generator and Discriminator Loss During Training")
-    # plt.plot(G_losses, label="G")
-    # plt.plot(D_losses, label="D")
-    # plt.xlabel("iterations")
-    # plt.ylabel("Loss")
-    # plt.legend()
-    # plt.show()
-
-
-    # fig = plt.figure(figsize=(8,8))
-    # plt.axis("off")
-    # ims = [[plt.imshow(np.transpose(i,(1,2,0)), animated=True)] for i in img_list]
-    # ani = animation.ArtistAnimation(fig, ims, interval=1000, repeat_delay=1000, blit=True)
-
-    # HTML(ani.to_jshtml())
-
-    # # Grab a batch of real images from the dataloader
-    # real_batch = next(iter(dataloader))
-
-    # # Plot the real images
-    # plt.figure(figsize=(15,15))
-    # plt.subplot(1,2,1)
-    # plt.axis("off")
-    # plt.title("Real Images")
-    # plt.imshow(np.transpose(vutils.make_grid(real_batch[0].to(device)[:64], padding=5, normalize=True).cpu(),(1,2,0)))
-
-    # # Plot the fake images from the last epoch
-    # plt.subplot(1,2,2)
-    # plt.axis("off")
-    # plt.title("Fake Images")
-    # plt.imshow(np.transpose(img_list[-1],(1,2,0)))
-    # plt.show()
-
-
-
-# c = torch.randn(b_size, nz, 1, 1, device=device)
-# # Generate fake image batch with G
-# f = netG(c).detach().cpu()
-# f = netG(c).detach().cpu()[0].squeeze().permute(1,2,0)
-# f = vutils.make_grid(f, padding=2, normalize=True).squeeze().permute(1,2,0)
-# f = f.numpy()
-# f.shape
-
-# from matplotlib import pyplot as plt
-# plt.imshow(f, interpolation='nearest')
-# plt.show()
-
-
-
-
 
